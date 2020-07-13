@@ -11,6 +11,7 @@ import warnings
 
 
 def stft_to_real(stft):
+    """Converts the comploex values in the stft to real numbers in the shape [real, imaginary]"""
     real_stft = np.zeros(
         (stft.shape[0], stft.shape[1], 2))  # pylint: disable=E1136
 
@@ -21,12 +22,14 @@ def stft_to_real(stft):
 
 
 def save_stft(file_name, path_to_save, wave_data):
+    """Saves the stft (with real values) to a file"""
     stft = librosa.stft(wave_data, n_fft=512, win_length=256)
     real_stft = stft_to_real(stft)
     np.save(path_to_save+file_name, real_stft)
 
 
 def send_file(file_name):
+    """Sends a file over the localhost with packet loss"""
     stream_socket = skt.socket(skt.AF_INET, skt.SOCK_DGRAM)
     f, sr = librosa.load(raw_data_path+file_name+".mp3")
     save_stft(file_name, stft_original_path, f)
@@ -49,7 +52,7 @@ def send_file(file_name):
 
 
 def receive_file(file_name):
-
+    """Receives a file with packet loss over localhost and saves it"""
     dest = io.BytesIO()
     receive_socket = skt.socket(skt.AF_INET, skt.SOCK_DGRAM)
 
@@ -63,7 +66,10 @@ def receive_file(file_name):
     except skt.timeout:
         receive_socket.close()
         wave_data = np.frombuffer(dest.getvalue(), dtype=np.float32)
-        save_stft(file_name, stft_packet_loss_path, wave_data)
+        save_thread = Thread(target=save_stft, args=(
+            file_name, stft_packet_loss_path, wave_data))
+        save_thread.start()
+        #save_stft(file_name, stft_packet_loss_path, wave_data)
         librosa.output.write_wav(
             packet_loss_data_path+file_name+".wav", wave_data, sr=22050)
         dest.close()
@@ -74,6 +80,7 @@ def get_file_name(idx):
 
 
 def stream_files(file_names):
+    """Automates sending/receiving files."""
     for file_name in file_names:
         start_time = time.time()
         thread = Thread(target=receive_file, args=(file_name, ))
