@@ -94,7 +94,7 @@ def stream_files(file_names):
         end_time = time.time() - start_time
 
         print(f"Processed: {file_name}, Time: {end_time:.2f}s", end="\r")
-        if(i == amount):
+        if(i == amount - 1):
             break
     print()
     print("Done!")
