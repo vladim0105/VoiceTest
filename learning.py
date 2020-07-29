@@ -42,30 +42,24 @@ test_data = np.load(
 
 file_names = [f.split("\\")[1].split(".")[0]
               for f in glob.glob("data/stft_loss/*.npy")]
-test_data[0, 0] = 2
+
 decoded_to_wav(test_data, "test.wav")
-epochs = 10
+epochs = 1
 batch_size = 2
-timesteps = 100
+timesteps = 250
 MAX_TIMESTEPS = 5000
 lstm_dim = 400
 assert MAX_TIMESTEPS % (batch_size * timesteps) == 0, "Make sure that timesteps and batch size can fit fully inside a sample."
 
 
 def scale_data(data):
-    x_scaler = sk.MinMaxScaler(
-        feature_range=(0, 1))
-    y_scaler = sk.MinMaxScaler(
-        feature_range=(0, 1))
+    x_scaler = sk.StandardScaler()
+    y_scaler = sk.StandardScaler()
 
     x_scaler = x_scaler.fit(data[:, :])
     y_scaler = y_scaler.fit(data[:, :])
 
-    scaled_data = np.zeros(data.shape)
-    scaled_data[:, :] = x_scaler.transform(
-        data[:, :])
-    scaled_data[:, :] = y_scaler.transform(
-        data[:, :])
+    scaled_data = x_scaler.transform(data)
     return scaled_data
 
 
@@ -93,20 +87,24 @@ def data_generator(sample_names, epochs, batch_size, timesteps):
                     yield ([loss_batch, original_batch], target_batch)
 
 
-# Model
-encoder_input = Input(shape=(None, 257 * 2))
-encoder = LSTM(lstm_dim, return_state=True)
-encoder_output, state_h, state_c = encoder(encoder_input)
-encoder_states = [state_h, state_c]
+def build_model():
+    encoder_input = Input(shape=(None, 257 * 2))
+    encoder = LSTM(lstm_dim, return_state=True)
+    encoder_output, state_h, state_c = encoder(encoder_input)
+    encoder_states = [state_h, state_c]
 
-decoder_input = Input(shape=(None, 257 * 2))
-decoder = LSTM(lstm_dim, return_state=True, return_sequences=True)
-decoder_output, _, _ = decoder(decoder_input, initial_state=[state_h, state_c])
-decoder_dense = Dense(514)
-model_output = decoder_dense(decoder_output)
-model = Model([encoder_input, decoder_input], model_output)
-tf.keras.utils.plot_model(model, to_file='model.png', show_shapes=True)
-optimizer = keras.optimizers.Adam(lr=0.0001)
+    decoder_input = Input(shape=(None, 257 * 2))
+    decoder = LSTM(lstm_dim, return_state=True, return_sequences=True)
+    decoder_output, _, _ = decoder(decoder_input, initial_state=[state_h, state_c])
+    decoder_dense = Dense(514)
+    model_output = decoder_dense(decoder_output)
+    model = Model([encoder_input, decoder_input], model_output)
+
+    return model, encoder_states
+
+
+lr = tf.keras.callbacks.ReduceLROnPlateau(monitor="loss", verbose=1, factor=0.5, patience=1)
+optimizer = keras.optimizers.SGD(lr=0.1, decay=0, momentum=0.8, nesterov=True)
 mse = tf.keras.losses.MeanAbsoluteError()
 model.compile(optimizer=optimizer, loss=mse)
 
@@ -131,33 +129,38 @@ def decode(input_data):
     decoder_model = Model(
         [decoder_input] + decoder_states_inputs,
         [decoder_outputs] + decoder_states)
-    print(np.expand_dims(input_data, axis=0).shape)
+
     states_value = encoder_model.predict(np.expand_dims(input_data, axis=1))
+
     target_seq = np.zeros((1, 1, 257 * 2))
     target_seq[0, 0] = input_data[0]
     decoded_data = np.zeros_like(input_data)
     for i in range(input_data.shape[0]):
         target_seq[0, 0] = input_data[i]
-        print(target_seq)
         frame_output, h, c = decoder_model.predict(
             [target_seq] + states_value)
-        decoded_data[decoded_data.shape[0] - i - 1] = frame_output
+
+        decoded_data[i] = frame_output
+
+        states_value = [h, c]
 
     return decoded_data
 
 
 training_steps = ((len(training_sample_names) * MAX_TIMESTEPS) / timesteps) / batch_size
 model.fit(x=data_generator(training_sample_names, epochs, batch_size, timesteps), epochs=epochs, steps_per_epoch=training_steps,
-          batch_size=batch_size)
+          batch_size=batch_size, callbacks=[lr])
 # TODO Scale, then unscale test data
-scaler = sk.MinMaxScaler(feature_range=(0, 1))
+scaler = sk.StandardScaler()
 scaler = scaler.fit(test_data)
 scaled = scaler.transform(test_data)
 a = decode(scaled[:timesteps])
+print(np.max(a))
 inv = scaler.inverse_transform(a)
 decoded_to_wav(inv, "result.wav")
-print(inv[0, 0], inv[0, 1], inv[0, 2], inv[0, -1])
+print(inv[0, 0], inv[1, 1], inv[1, 2], inv[1, -1])
 print(test_data[0, 0], test_data[0, 1], test_data[0, 2], test_data[0, -1])
-mse = mean_squared_error(inv[:timesteps], timesteps[:250])
+mse = mean_squared_error(inv[:timesteps], test_data[:timesteps])
 print(mse)
+print(np.argmax(inv), np.argmax(test_data))
 model.save("checkpoint.h5")
