@@ -1,12 +1,15 @@
-
 import warnings
 warnings.simplefilter(
     action='ignore', category=FutureWarning)
-import tensorflow as tf
-import tensorflow.python.keras as keras
-from tensorflow.python.keras import Model
-from tensorflow.python.keras.layers import Input, LSTM, Dense
+
 import numpy as np
+import tensorflow as tf
+import tensorflow.keras as keras
+from tensorflow.keras.layers import Input, LSTM, Dense
+from tensorflow.keras import Model
+import sklearn.preprocessing as sk
+
+tf.compat.v1.disable_eager_execution()
 
 
 class Seq2SeqModel:
@@ -24,7 +27,7 @@ class Seq2SeqModel:
         self.model = self.init_training_model()
         # self.init_inference_model()
         a = np.zeros(shape=(1, 1, 514))
-        self.predict_seq(a)
+        # self.predict_seq(a)
 
     def init_training_model(self):
         # Init encoder
@@ -37,17 +40,21 @@ class Seq2SeqModel:
 
         # Init decoder
         self.decoder_input = Input(shape=self.input_shape)
-        self.decoder = LSTM(self.lstm_dim, return_state=True, return_sequences=True)
+        self.decoder = LSTM(self.lstm_dim, return_state=True,
+                            return_sequences=True)
         # Only care about decoder output
-        self.decoder_output, _, _ = self.decoder(self.decoder_input, initial_state=[state_h, state_c])
+        self.decoder_output, _, _ = self.decoder(
+            self.decoder_input, initial_state=[state_h, state_c])
         # Decoder dense layer (final output layer)
         self.decoder_dense = Dense(self.output_size)
         model_output = self.decoder_dense(self.decoder_output)
 
-        model = Model(inputs=[self.encoder_input, self.decoder_input], outputs=model_output)
+        model = Model([self.encoder_input,
+                       self.decoder_input], model_output)
 
-        optimizer = keras.optimizers.SGD(lr=0.1, decay=0, momentum=0.8, nesterov=True)
-        loss = tf.keras.losses.MeanAbsoluteError()
+        optimizer = keras.optimizers.SGD(
+            lr=0.01, decay=0, momentum=0.8, nesterov=True)
+        loss = tf.keras.losses.MeanSquaredError()
 
         model.compile(optimizer=optimizer, loss=loss)
 
@@ -55,8 +62,10 @@ class Seq2SeqModel:
 
     def init_inference_model(self):
         # Init encoder model
-        encoder_model = Model(inputs=self.encoder_input, outputs=self.encoder_states)
-        tf.keras.utils.plot_model(encoder_model, to_file='encoder_model.png', show_shapes=True)
+        encoder_model = Model(inputs=self.encoder_input,
+                              outputs=self.encoder_states)
+        tf.keras.utils.plot_model(
+            encoder_model, to_file='encoder_model.png', show_shapes=True)
 
         # Init decoder model
         decoder_state_input_h = Input(shape=(self.lstm_dim,))
@@ -78,4 +87,18 @@ class Seq2SeqModel:
         hidden_states = encoder_model.predict(input_seq)
 
 
-a = Seq2SeqModel(input_shape=(None, 257 * 2), lstm_dim=100, output_size=257 * 2)
+scaler = sk.MinMaxScaler()
+in_data = np.array([[1], [2], [3], [4], [5], [6]])
+out_data = np.array([[2], [3], [4], [5], [6], [7]])
+
+in_data = scaler.fit_transform(in_data)
+out_data = scaler.fit_transform(out_data)
+
+in_data = np.expand_dims(in_data, axis=0)
+out_data = np.expand_dims(out_data, axis=0)
+a = Seq2SeqModel(input_shape=(None, 1),
+                 lstm_dim=100, output_size=1)
+tf.keras.utils.plot_model(a.model, "test.png")
+a.model.fit(x=[in_data, in_data], y=out_data, epochs=100)
+
+print(a.model.summary())
