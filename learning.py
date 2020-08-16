@@ -87,22 +87,6 @@ def data_generator(sample_names, epochs, batch_size, timesteps):
                     yield ([loss_batch, original_batch], target_batch)
 
 
-def build_model():
-    encoder_input = Input(shape=(None, 257 * 2))
-    encoder = LSTM(lstm_dim, return_state=True)
-    encoder_output, state_h, state_c = encoder(encoder_input)
-    encoder_states = [state_h, state_c]
-
-    decoder_input = Input(shape=(None, 257 * 2))
-    decoder = LSTM(lstm_dim, return_state=True, return_sequences=True)
-    decoder_output, _, _ = decoder(decoder_input, initial_state=[state_h, state_c])
-    decoder_dense = Dense(514)
-    model_output = decoder_dense(decoder_output)
-    model = Model([encoder_input, decoder_input], model_output)
-
-    return model, encoder_states
-
-
 lr = tf.keras.callbacks.ReduceLROnPlateau(monitor="loss", verbose=1, factor=0.5, patience=1)
 optimizer = keras.optimizers.SGD(lr=0.1, decay=0, momentum=0.8, nesterov=True)
 mse = tf.keras.losses.MeanAbsoluteError()
@@ -111,40 +95,6 @@ model.compile(optimizer=optimizer, loss=mse)
 
 training_sample_names = file_names[:1]
 validation_sample_names = file_names[:1]
-
-
-# Inference
-
-
-def decode(input_data):
-    encoder_model = Model(encoder_input, encoder_states)
-
-    decoder_state_input_h = Input(shape=(lstm_dim,))
-    decoder_state_input_c = Input(shape=(lstm_dim,))
-    decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
-    decoder_outputs, state_h, state_c = decoder(
-        decoder_input, initial_state=decoder_states_inputs)
-    decoder_states = [state_h, state_c]
-    decoder_outputs = decoder_dense(decoder_outputs)
-    decoder_model = Model(
-        [decoder_input] + decoder_states_inputs,
-        [decoder_outputs] + decoder_states)
-
-    states_value = encoder_model.predict(np.expand_dims(input_data, axis=1))
-
-    target_seq = np.zeros((1, 1, 257 * 2))
-    target_seq[0, 0] = input_data[0]
-    decoded_data = np.zeros_like(input_data)
-    for i in range(input_data.shape[0]):
-        target_seq[0, 0] = input_data[i]
-        frame_output, h, c = decoder_model.predict(
-            [target_seq] + states_value)
-
-        decoded_data[i] = frame_output
-
-        states_value = [h, c]
-
-    return decoded_data
 
 
 training_steps = ((len(training_sample_names) * MAX_TIMESTEPS) / timesteps) / batch_size
