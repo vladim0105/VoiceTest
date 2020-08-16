@@ -78,6 +78,29 @@ def receive_file(file_name):
         dest.close()
 
 
+def split_file(f, sr, file_name, duration):
+    buffer = duration * sr
+
+    samples_total = int(len(f) / buffer) * buffer
+
+    samples_wrote = 0
+    counter = 1
+
+    while samples_wrote < samples_total:
+
+        # check if the buffer is not exceeding total samples
+        if buffer > (samples_total - samples_wrote):
+            buffer = samples_total - samples_wrote
+
+        block = f[samples_wrote: (samples_wrote + buffer)]
+        out_filename = "split_" + str(counter) + "_" + file_name
+
+        # Write 2 second segment
+        librosa.output.write_wav(out_filename, block, sr)
+        counter += 1
+        samples_wrote += buffer
+
+
 def get_file_name(idx):
     return f"sample-{idx:06}"
 
@@ -103,6 +126,13 @@ def stream_files(file_names):
 if __name__ == "__main__":
     warnings.filterwarnings('ignore')
 
+    f, sr = librosa.load("test.mp3")
+    split_file(f, sr, "test.wav", 2)
+    f, sr = librosa.load("split_1_test.wav")
+    stft = librosa.stft(f, n_fft=512, win_length=256, hop_length=None)
+    print(len(f))
+    print(stft.shape)
+    assert False
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", "--amount", type=int)
     args = parser.parse_args()
